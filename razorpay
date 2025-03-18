@@ -1,0 +1,191 @@
+composer require razorpay/razorpay
+
+
+Configure Razorpay in Laravel
+
+
+.env File
+
+
+RAZORPAY_KEY=rzp_test_your_key_id
+RAZORPAY_SECRET=your_key_secret
+
+Create Razorpay Controller
+
+php artisan make:controller PaymentController
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Razorpay\Api\Api;
+use Exception;
+
+class PaymentController extends Controller
+{
+    // Show payment form
+    public function index()
+    {
+        return view('payment');
+    }
+
+    // Create order and proceed to payment
+    public function createOrder(Request $request)
+    {
+        $api = new Api(env('RAZORPAY_KEY'), env('RAZORPAY_SECRET'));
+
+        $orderData = [
+            'receipt'         => 'order_' . rand(1000, 9999),
+            'amount'          => $request->amount * 100, // amount in paise
+            'currency'        => 'INR',
+            'payment_capture' => 1 // auto-capture payment
+        ];
+
+        $order = $api->order->create($orderData);
+
+        return response()->json([
+            'success' => true,
+            'order_id' => $order['id'],
+            'amount' => $orderData['amount'],
+            'currency' => $orderData['currency']
+        ]);
+    }
+
+    // Handle payment success
+    public function paymentSuccess(Request $request)
+    {
+        try {
+            $api = new Api(env('RAZORPAY_KEY'), env('RAZORPAY_SECRET'));
+
+            $attributes = [
+                'razorpay_order_id' => $request->razorpay_order_id,
+                'razorpay_payment_id' => $request->razorpay_payment_id,
+                'razorpay_signature' => $request->razorpay_signature,
+            ];
+
+            $api->utility->verifyPaymentSignature($attributes);
+
+            // Payment is successful, save data to DB or perform other actions
+            return response()->json([
+                'success' => true,
+                'message' => 'Payment Successful',
+                'payment_id' => $request->razorpay_payment_id,
+            ]);
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Payment Failed: ' . $e->getMessage(),
+            ]);
+        }
+    }
+}
+
+
+
+
+Create Routes
+
+
+use App\Http\Controllers\PaymentController;
+
+Route::get('/payment', [PaymentController::class, 'index']);
+Route::post('/create-order', [PaymentController::class, 'createOrder']);
+Route::post('/payment-success', [PaymentController::class, 'paymentSuccess']);
+
+
+
+Create Blade View for Payment
+resources/views/payment.blade.php
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Razorpay Payment</title>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+</head>
+<body>
+    <h2>Laravel Razorpay Payment</h2>
+    <input type="number" id="amount" placeholder="Enter Amount" required />
+    <button id="pay-btn">Pay with Razorpay</button>
+
+    <script>
+        document.getElementById('pay-btn').onclick = function(e) {
+            e.preventDefault();
+            
+            let amount = document.getElementById('amount').value;
+            if (amount <= 0) {
+                alert('Please enter a valid amount');
+                return;
+            }
+
+            fetch('/create-order', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                },
+                body: JSON.stringify({ amount: amount })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    var options = {
+                        "key": "{{ env('RAZORPAY_KEY') }}",
+                        "amount": data.amount,
+                        "currency": data.currency,
+                        "name": "Laravel Payment",
+                        "description": "Test Transaction",
+                        "order_id": data.order_id,
+                        "handler": function(response) {
+                            fetch('/payment-success', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                                },
+                                body: JSON.stringify({
+                                    razorpay_order_id: response.razorpay_order_id,
+                                    razorpay_payment_id: response.razorpay_payment_id,
+                                    razorpay_signature: response.razorpay_signature,
+                                })
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.success) {
+                                    alert('Payment Successful!');
+                                } else {
+                                    alert('Payment Failed!');
+                                }
+                            });
+                        },
+                        "prefill": {
+                            "name": "Test User",
+                            "email": "test@example.com",
+                            "contact": "9999999999"
+                        },
+                        "theme": {
+                            "color": "#528FF0"
+                        }
+                    };
+                    var rzp1 = new Razorpay(options);
+                    rzp1.open();
+                } else {
+                    alert('Error creating Razorpay order');
+                }
+            });
+        }
+    </script>
+</body>
+</html>
+
+
+Step 7: Test Payment
+
+php artisan serve
+
+
+http://127.0.0.1:8000/payment
+razorpay process
+
+✅ Step 8: Handle Payment Callbacks (Optional)
+✅ Step 8: Handle Payment Callbacks (Optional)
+https://yourdomain.com/payment-webhook
+
