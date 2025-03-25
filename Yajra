@@ -1,1 +1,351 @@
 
+# Install Laravel
+composer create-project laravel/laravel product-crud
+
+# Install Yajra DataTables
+composer require yajra/laravel-datatables:^10.0
+
+# Publish DataTable config
+php artisan vendor:publish --provider="Yajra\DataTables\DataTablesServiceProvider"
+
+
+# Create model, migration, and controller
+php artisan make:model Product -mcr
+
+
+Migration: database/migrations/xxxx_xx_xx_create_products_table.php
+
+
+public function up()
+{
+    Schema::create('products', function (Blueprint $table) {
+        $table->id();
+        $table->string('name');
+        $table->text('description')->nullable();
+        $table->decimal('price', 8, 2);
+        $table->integer('quantity');
+        $table->timestamps();
+    });
+}
+
+
+# Run migration
+php artisan migrate
+
+
+web.php
+
+use App\Http\Controllers\ProductController;
+
+Route::get('products', [ProductController::class, 'index'])->name('products.index');
+Route::get('products/list', [ProductController::class, 'getProducts'])->name('products.list');
+Route::post('products/store', [ProductController::class, 'store'])->name('products.store');
+Route::get('products/edit/{id}', [ProductController::class, 'edit'])->name('products.edit');
+Route::post('products/update/{id}', [ProductController::class, 'update'])->name('products.update');
+Route::delete('products/delete/{id}', [ProductController::class, 'destroy'])->name('products.delete');
+
+Controller: app/Http/Controllers/ProductController.php
+
+namespace App\Http\Controllers;
+
+use App\Http\Requests\StoreProductRequest;
+use App\Http\Requests\UpdateProductRequest;
+use App\Models\Product;
+use Illuminate\Http\Request;
+use Yajra\DataTables\DataTables;
+
+class ProductController extends Controller
+{
+    // Display the product list page
+    public function index()
+    {
+        return view('products.index');
+    }
+
+    // Fetch product list with DataTable
+    public function getProducts(Request $request)
+    {
+        if ($request->ajax()) {
+            $data = Product::select(['id', 'name', 'description', 'price', 'quantity', 'created_at']);
+            return DataTables::of($data)
+                ->addColumn('action', function ($row) {
+                    return '
+                        <button data-id="' . $row->id . '" class="btn btn-info btn-sm editBtn">Edit</button>
+                        <button data-id="' . $row->id . '" class="btn btn-danger btn-sm deleteBtn">Delete</button>';
+                })
+                ->rawColumns(['action'])
+                ->make(true);
+        }
+    }
+
+    // Store new product
+    public function store(StoreProductRequest $request)
+    {
+        Product::create($request->validated());
+        return response()->json(['success' => 'Product added successfully.']);
+    }
+
+    // Edit product
+    public function edit($id)
+    {
+        $product = Product::findOrFail($id);
+        return response()->json($product);
+    }
+
+    // Update product
+    public function update(UpdateProductRequest $request, $id)
+    {
+        $product = Product::findOrFail($id);
+        $product->update($request->validated());
+        return response()->json(['success' => 'Product updated successfully.']);
+    }
+
+    // Delete product
+    public function destroy($id)
+    {
+        Product::findOrFail($id)->delete();
+        return response()->json(['success' => 'Product deleted successfully.']);
+    }
+}
+
+
+View: resources/views/products/index.blade.php
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Product CRUD with Yajra DataTables</title>
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+</head>
+<body>
+
+<div class="container mt-5">
+    <h2 class="text-center">Product CRUD with Yajra DataTables</h2>
+    <button class="btn btn-success mb-3" id="addProductBtn">Add Product</button>
+
+    <table class="table table-bordered" id="productTable">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Description</th>
+                <th>Price</th>
+                <th>Quantity</th>
+                <th>Created At</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+    </table>
+</div>
+
+<!-- Product Modal -->
+<div class="modal fade" id="productModal" tabindex="-1">
+    <div class="modal-dialog">
+        <form id="productForm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalTitle">Add Product</h5>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="productId">
+                    <div class="mb-3">
+                        <label>Name</label>
+                        <input type="text" class="form-control" id="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label>Description</label>
+                        <textarea class="form-control" id="description"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label>Price</label>
+                        <input type="number" class="form-control" id="price" required>
+                    </div>
+                    <div class="mb-3">
+                        <label>Quantity</label>
+                        <input type="number" class="form-control" id="quantity" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" id="saveBtn" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+$(document).ready(function () {
+    // Load DataTable
+    var table = $('#productTable').DataTable({
+        processing: true,
+        serverSide: true,
+        ajax: '{{ route("products.list") }}',
+        columns: [
+            { data: 'id' },
+            { data: 'name' },
+            { data: 'description' },
+            { data: 'price' },
+            { data: 'quantity' },
+            { data: 'created_at' },
+            { data: 'action', orderable: false, searchable: false }
+        ]
+    });
+
+    // Show Add Modal
+    $('#addProductBtn').click(function () {
+        $('#productForm')[0].reset();
+        $('#modalTitle').text('Add Product');
+        $('#productModal').modal('show');
+    });
+
+    // Save Product
+$('#productForm').submit(function (e) {
+    e.preventDefault();
+    var id = $('#productId').val();
+    var url = id ? '/products/update/' + id : '/products/store';
+    var method = 'POST';
+
+    $.ajax({
+        url: url,
+        method: method,
+        data: {
+            name: $('#name').val(),
+            description: $('#description').val(),
+            price: $('#price').val(),
+            quantity: $('#quantity').val(),
+            _token: '{{ csrf_token() }}'
+        },
+        success: function (res) {
+            $('#productModal').modal('hide');
+            table.ajax.reload();
+        },
+        error: function (xhr) {
+            var errors = xhr.responseJSON.errors;
+            $.each(errors, function (key, value) {
+                alert(value[0]);
+            });
+        }
+    });
+});
+
+
+    // Edit Product
+    $('body').on('click', '.editBtn', function () {
+        var id = $(this).data('id');
+        $.get('/products/edit/' + id, function (data) {
+            $('#productId').val(data.id);
+            $('#name').val(data.name);
+            $('#description').val(data.description);
+            $('#price').val(data.price);
+            $('#quantity').val(data.quantity);
+            $('#modalTitle').text('Edit Product');
+            $('#productModal').modal('show');
+        });
+    });
+
+    // Delete Product
+    $('body').on('click', '.deleteBtn', function () {
+        var id = $(this).data('id');
+        if (confirm('Are you sure?')) {
+            $.ajax({
+                url: '/products/delete/' + id,
+                method: 'DELETE',
+                data: { _token: '{{ csrf_token() }}' },
+                success: function () {
+                    table.ajax.reload();
+                }
+            });
+        }
+    });
+});
+</script>
+</body>
+</html>
+
+
+php artisan serve
+
+
+📚 Step 1: Create Request Files
+php artisan make:request StoreProductRequest
+php artisan make:request UpdateProductRequest
+
+
+📄 app/Http/Requests/StoreProductRequest.php
+
+
+namespace App\Http\Requests;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class StoreProductRequest extends FormRequest
+{
+    public function authorize()
+    {
+        return true; // Set to true to allow access
+    }
+
+    public function rules()
+    {
+        return [
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'price' => 'required|numeric|min:0',
+            'quantity' => 'required|integer|min:1',
+        ];
+    }
+
+    public function messages()
+    {
+        return [
+            'name.required' => 'Product name is required.',
+            'price.required' => 'Price is required.',
+            'price.numeric' => 'Price must be a valid number.',
+            'quantity.required' => 'Quantity is required.',
+            'quantity.integer' => 'Quantity must be a valid integer.',
+        ];
+    }
+}
+
+
+📄 app/Http/Requests/UpdateProductRequest.php
+
+
+namespace App\Http\Requests;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class UpdateProductRequest extends FormRequest
+{
+    public function authorize()
+    {
+        return true;
+    }
+
+    public function rules()
+    {
+        return [
+            'name' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'price' => 'required|numeric|min:0',
+            'quantity' => 'required|integer|min:1',
+        ];
+    }
+
+    public function messages()
+    {
+        return [
+            'name.required' => 'Product name is required.',
+            'price.required' => 'Price is required.',
+            'price.numeric' => 'Price must be a valid number.',
+            'quantity.required' => 'Quantity is required.',
+            'quantity.integer' => 'Quantity must be a valid integer.',
+        ];
+    }
+}
